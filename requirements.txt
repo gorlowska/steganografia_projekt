@@ -1,0 +1,5 @@
+numpy
+pillow
+# tylko do download_data.py:
+scikit-image
+tifffile
