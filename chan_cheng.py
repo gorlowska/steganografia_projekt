@@ -6,11 +6,11 @@ from utils import bits_to_int, bits_to_bytes, pixel_order, HEADER_BITS
 NAME = "Chan & Cheng 2004 (LSB + OPAP)"
 
 
-def capacity_bits(cover, k):
+def capacity_bits(cover, k=2, **_):
     return cover.size * k
 
 
-def embed(cover, bits, k=2, use_opap=True, key=None):
+def embed(cover, bits, k=2, use_opap=True, key=None, **_):
     if len(bits) > capacity_bits(cover, k):
         raise ValueError(f"Wiadomosc za dluga ({len(bits)} b, pojemnosc {capacity_bits(cover, k)} b)")
 
@@ -45,7 +45,7 @@ def read_bits(pixels, order, k, n_bits):
     return bits.flatten()[:n_bits].astype(np.uint8)
 
 
-def extract(stego, k=2, key=None):
+def extract(stego, k=2, key=None, **_):
     pixels = stego.flatten().astype(np.int32)
     order = pixel_order(pixels.size, key)
 

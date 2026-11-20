@@ -11,14 +11,15 @@ from PIL import Image
 IMG_URL = "https://raw.githubusercontent.com/mohammadimtiazz/standard-test-images-for-Image-Processing/master/standard_test_images/"
 NLTK_URL = "https://raw.githubusercontent.com/nltk/nltk_data/gh-pages/packages/corpora/"
 
-STANDARD = {"baboon.png": "baboon.png", "barbara.bmp": "barbara.bmp", "boat.png": "boat.png",
+STANDARD = {"baboon.png": "baboon.png", "boat.png": "boat.png",
             "cameraman.tif": "cameraman.tif", "fruits.png": "fruits.png", "house.tif": "house.png",
             "jetplane.tif": "jetplane.png", "lake.tif": "lake.png", "livingroom.tif": "livingroom.tif",
             "peppers.png": "peppers.png", "pirate.tif": "pirate.tif", "tulips.png": "tulips.png",
             "walkbridge.tif": "walkbridge.png", "woman_blonde.tif": "woman_blonde.tif",
             "woman_darkhair.tif": "woman_darkhair.tif", "HappyFish.jpg": "happyfish.jpg"}
 SKIMAGE = ["astronaut", "brick", "grass", "gravel", "moon", "coffee", "chelsea", "coins", "clock",
-           "rocket", "page", "immunohistochemistry", "hubble_deep_field", "text", "retina", "colorwheel"]
+           "rocket", "page", "immunohistochemistry", "hubble_deep_field", "text", "retina", "colorwheel",
+           "stereo_motorcycle"]
 GUTENBERG = ["austen-emma", "austen-persuasion", "blake-poems", "bryant-stories", "burgess-busterbrown",
              "carroll-alice", "chesterton-thursday", "melville-moby_dick", "milton-paradise",
              "shakespeare-hamlet", "shakespeare-macbeth", "whitman-leaves"]
@@ -67,7 +68,10 @@ if __name__ == "__main__":
 
     import skimage.data
     for name in SKIMAGE:
-        Image.fromarray(getattr(skimage.data, name)()).save(f"data/raw/images/{name}.png")
+        a = getattr(skimage.data, name)()
+        if isinstance(a, tuple):                # stereo_motorcycle zwraca pare obrazow
+            a = a[0]
+        Image.fromarray(a).save(f"data/raw/images/{name}.png")
 
     z = zipfile.ZipFile(io.BytesIO(get(NLTK_URL + "gutenberg.zip")))
     for book in GUTENBERG:

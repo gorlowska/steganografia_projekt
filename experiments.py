@@ -1,16 +1,24 @@
-# Eksp. 1: pelne wypelnienie losowymi danymi (jak tab. 2 w artykule), LSB vs OPAP
-# Eksp. 2: kazdy obraz x kazda wiadomosc x k = 1..4
+# Eksp. 1: pelne wypelnienie losowymi danymi - PSNR, zmiany na piksel, asymetria (jak w artykulach)
+# Eksp. 2: kazdy obraz x kazda wiadomosc x kazda metoda - poprawnosc odczytu, PSNR
 import os
 import csv
 import numpy as np
 from utils import load_image, save_image, read_file, message_to_bits, psnr, mse, HEADER_BITS
-import chan_cheng as alg
+import chan_cheng
+import mielikainen
 
 COVERS, MESSAGES, RESULTS = "data/covers", "data/messages", "results"
-K_VALUES = [1, 2, 3, 4]
+
+# (nazwa, modul, parametry)
+METHODS = [(f"LSB k={k}", chan_cheng, {"k": k, "use_opap": False}) for k in (1, 2, 3, 4)] \
+        + [(f"OPAP k={k}", chan_cheng, {"k": k, "use_opap": True}) for k in (1, 2, 3, 4)] \
+        + [("LSBM", mielikainen, {"revisited": False}),
+           ("LSBMR", mielikainen, {"revisited": True})]
+
 
 def files(folder):
     return [os.path.join(folder, f) for f in sorted(os.listdir(folder))]
+
 
 def save_csv(rows, name):
     with open(os.path.join(RESULTS, name), "w", newline="", encoding="utf-8") as f:
@@ -18,28 +26,42 @@ def save_csv(rows, name):
         w.writeheader()
         w.writerows(rows)
 
+
+def bias(cover, stego, parity):
+    # |srednia zmiana| w obszarze pikseli parzystych / nieparzystych (asymetria LSB replacement)
+    mask = cover % 2 == parity
+    if not mask.any():
+        return float("nan")
+    return abs(float(np.mean(stego[mask].astype(int) - cover[mask])))
+
+
 def experiment_full(covers):
     rng = np.random.default_rng(0)
     rows = []
     for path in covers:
         cover = load_image(path)
-        for k in K_VALUES:
-            data = rng.integers(0, 256, (alg.capacity_bits(cover, k) - HEADER_BITS) // 8, dtype=np.uint8).tobytes()
-            row = {"cover": os.path.basename(path), "k": k}
-            for opap in (False, True):
-                stego, stats = alg.embed(cover, message_to_bits(data), k, opap)
-                name = "opap" if opap else "lsb"
-                row["psnr_" + name] = round(psnr(cover, stego), 4)
-                row["ok_" + name] = alg.extract(stego, k) == data
-            for c, n in stats["cases"].items():
-                row[f"case{c}_%"] = round(100 * n / stats["used_pixels"], 2)
+        for name, alg, params in METHODS:
+            data = rng.integers(0, 256, (alg.capacity_bits(cover, **params) - HEADER_BITS) // 8, dtype=np.uint8).tobytes()
+            stego, stats = alg.embed(cover, message_to_bits(data), **params)
+            row = {"method": name, "cover": os.path.basename(path),
+                   "ok": alg.extract(stego, **params) == data,
+                   "psnr": round(psnr(cover, stego), 4),
+                   "bpp": round(8 * len(data) / cover.size, 4),
+                   "changes_per_pixel": round(int((cover != stego).sum()) / stats["used_pixels"], 4),
+                   "bias_even": round(bias(cover, stego, 0), 4),
+                   "bias_odd": round(bias(cover, stego, 1), 4)}
             rows.append(row)
     save_csv(rows, "full_capacity.csv")
 
-    print("Srednie PSNR [dB], pelne wypelnienie:")
-    for k in K_VALUES:
-        r = [x for x in rows if x["k"] == k]
-        print(f"  k={k}  LSB {np.mean([x['psnr_lsb'] for x in r]):.2f}  OPAP {np.mean([x['psnr_opap'] for x in r]):.2f}")
+    print("Pelne wypelnienie, srednie po obrazach:")
+    print(f"  {'metoda':10s} {'bpp':>5s} {'PSNR':>6s} {'zmiany/px':>9s} {'asym.':>6s}  odczyt")
+    for name, _, _ in METHODS:
+        r = [x for x in rows if x["method"] == name]
+        print(f"  {name:10s} {np.mean([x['bpp'] for x in r]):5.2f} {np.mean([x['psnr'] for x in r]):6.2f}"
+              f" {np.mean([x['changes_per_pixel'] for x in r]):9.3f}"
+              f" {np.nanmean([x['bias_even'] for x in r] + [x['bias_odd'] for x in r]):6.3f}"
+              f"  {sum(x['ok'] for x in r)}/{len(r)}")
+
 
 def experiment_messages(covers, messages):
     rows = []
@@ -48,29 +70,33 @@ def experiment_messages(covers, messages):
         for mpath in messages:
             data = read_file(mpath)
             bits = message_to_bits(data)
-            for k in K_VALUES:
-                row = {"cover": os.path.basename(cpath), "message": os.path.basename(mpath),
-                       "bytes": len(data), "k": k, "fits": len(bits) <= alg.capacity_bits(cover, k)}
+            for name, alg, params in METHODS:
+                row = {"method": name, "cover": os.path.basename(cpath), "message": os.path.basename(mpath),
+                       "bytes": len(data), "fits": len(bits) <= alg.capacity_bits(cover, **params)}
                 if row["fits"]:
-                    stego, _ = alg.embed(cover, bits, k)
-                    row.update(ok=alg.extract(stego, k) == data, psnr=round(psnr(cover, stego), 4),
+                    stego, _ = alg.embed(cover, bits, **params)
+                    row.update(ok=alg.extract(stego, **params) == data, psnr=round(psnr(cover, stego), 4),
                                mse=round(mse(cover, stego), 6), changed=int((cover != stego).sum()))
                 else:
                     row.update(ok="", psnr="", mse="", changed="")
                 rows.append(row)
     save_csv(rows, "messages.csv")
 
-    fits = [r for r in rows if r["fits"]]
-    print(f"Wiadomosci: zmiescilo sie {len(fits)}/{len(rows)}, poprawny odczyt {sum(r['ok'] for r in fits)}/{len(fits)}")
+    print("Wiadomosci (zmiescilo sie / poprawny odczyt):")
+    for name, _, _ in METHODS:
+        fits = [r for r in rows if r["method"] == name and r["fits"]]
+        print(f"  {name:10s} {len(fits):4d}/{len(covers) * len(messages)}  {sum(r['ok'] for r in fits)}/{len(fits)}")
+
 
 def save_examples(covers, messages):
     os.makedirs(os.path.join(RESULTS, "examples"), exist_ok=True)
     cover = load_image(covers[5])
     data = read_file(messages[20])
     save_image(cover, os.path.join(RESULTS, "examples", "cover.png"))
-    for k in K_VALUES:
-        stego, _ = alg.embed(cover, message_to_bits(data), k)
-        save_image(stego, os.path.join(RESULTS, "examples", f"stego_k{k}.png"))
+    for name, alg, params in METHODS:
+        stego, _ = alg.embed(cover, message_to_bits(data), **params)
+        save_image(stego, os.path.join(RESULTS, "examples", name.replace(" ", "_").replace("=", "") + ".png"))
+
 
 if __name__ == "__main__":
     os.makedirs(RESULTS, exist_ok=True)
